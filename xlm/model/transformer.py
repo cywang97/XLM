@@ -145,6 +145,14 @@ class PredLayer(nn.Module):
         assert x.dim() == 2
         return self.proj.log_prob(x) if self.asm else self.proj(x)
 
+    def ctc(self, x, y, input_length, target_length):
+        logits = self.proj(x)
+        lprobs = F.log_softmax(logits.float(), dim=-1)
+        target_length -= 2
+        loss = F.ctc_loss(lprobs, y, input_length, target_length, blank=0, reduction='sum')
+        return loss
+
+
 
 class MultiHeadAttention(nn.Module):
 

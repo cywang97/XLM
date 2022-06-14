@@ -159,6 +159,7 @@ def get_parser():
                         help="AE coefficient")
     parser.add_argument("--lambda_mt", type=str, default="1",
                         help="MT coefficient")
+    parser.add_argument("--lambda_ctc", type=str, default="1")
     parser.add_argument("--lambda_bt", type=str, default="1",
                         help="BT coefficient")
 
@@ -175,6 +176,7 @@ def get_parser():
                         help="Back-translation steps")
     parser.add_argument("--pc_steps", type=str, default="",
                         help="Parallel classification steps")
+    parser.add_argument("--ctc_steps", type=str, default="")
 
     # reload pretrained embeddings / pretrained model / checkpoint
     parser.add_argument("--reload_emb", type=str, default="",
@@ -282,6 +284,9 @@ def main(params):
             # machine translation steps
             for lang1, lang2 in shuf_order(params.mt_steps, params):
                 trainer.mt_step(lang1, lang2, params.lambda_mt)
+
+            for lang1, lang2 in shuf_order(params.ctc_steps, params):
+                trainer.ctc_step(lang1, lang2, params.lambda_ctc)
 
             # back-translation steps
             for lang1, lang2, lang3 in shuf_order(params.bt_steps):

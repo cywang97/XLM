@@ -168,7 +168,7 @@ def load_para_data(params, data):
     """
     data['para'] = {}
 
-    required_para_train = set(params.clm_steps + params.mlm_steps + params.pc_steps + params.mt_steps)
+    required_para_train = set(params.clm_steps + params.mlm_steps + params.pc_steps + params.mt_steps + params.ctc_steps)
 
     for src, tgt in params.para_dataset.keys():
 
@@ -267,6 +267,13 @@ def check_data_params(params):
     assert len(params.mt_steps) == len(set(params.mt_steps))
     assert len(params.mt_steps) == 0 or not params.encoder_only
 
+    # ctc steps
+    params.ctc_steps = [tuple(s.split('-')) for s in params.ctc_steps.split(',') if len(s) > 0]
+    assert all([len(x) == 2 for x in params.ctc_steps])
+    assert all([l1 in params.langs and l2 in params.langs for l1, l2 in params.ctc_steps])
+    assert all([l1 != l2 for l1, l2 in params.ctc_steps])
+    assert len(params.ctc_steps) == len(set(params.ctc_steps))
+
     # denoising auto-encoder steps
     params.ae_steps = [s for s in params.ae_steps.split(',') if len(s) > 0]
     assert all([lang in params.langs for lang in params.ae_steps])
@@ -297,7 +304,7 @@ def check_data_params(params):
     assert all([all([os.path.isfile(p) for p in paths.values()]) for paths in params.mono_dataset.values()])
 
     # check parallel datasets
-    required_para_train = set(params.clm_steps + params.mlm_steps + params.pc_steps + params.mt_steps)
+    required_para_train = set(params.clm_steps + params.mlm_steps + params.pc_steps + params.mt_steps + params.ctc_steps)
     required_para = required_para_train | set([(l2, l3) for _, l2, l3 in params.bt_steps])
     params.para_dataset = {
         (src, tgt): {

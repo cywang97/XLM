@@ -60,7 +60,7 @@ class Trainer(object):
         if params.multi_gpu and params.amp == -1:
             logger.info("Using nn.parallel.DistributedDataParallel ...")
             for name in self.MODEL_NAMES:
-                setattr(self, name, nn.parallel.DistributedDataParallel(getattr(self, name), device_ids=[params.local_rank], output_device=params.local_rank, broadcast_buffers=True))
+                setattr(self, name, nn.parallel.DistributedDataParallel(getattr(self, name), device_ids=[params.local_rank], output_device=params.local_rank, broadcast_buffers=True, find_unused_parameters=True))
 
         # set optimizers
         self.set_optimizers()
@@ -118,6 +118,7 @@ class Trainer(object):
             [('MLM-%s' % l, []) for l in params.langs] +
             [('MLM-%s-%s' % (l1, l2), []) for l1, l2 in data['para'].keys()] +
             [('MLM-%s-%s' % (l2, l1), []) for l1, l2 in data['para'].keys()] +
+            [('CTC-%s-%s' % (l1, l2), []) for l1, l2 in params.ctc_steps] +
             [('PC-%s-%s' % (l1, l2), []) for l1, l2 in params.pc_steps] +
             [('AE-%s' % lang, []) for lang in params.ae_steps] +
             [('MT-%s-%s' % (l1, l2), []) for l1, l2 in params.mt_steps] +
@@ -728,6 +729,60 @@ class Trainer(object):
         self.n_sentences += params.batch_size
         self.stats['processed_s'] += lengths.size(0)
         self.stats['processed_w'] += pred_mask.sum().item()
+
+    def ctc_step(self, lang1, lang2, lambda_coeff):
+        """
+        Machine translation step.
+        Can also be used for denoising auto-encoding.
+        """
+        assert lambda_coeff >= 0
+        if lambda_coeff == 0:
+            return
+        import pdb
+        pdb.set_trace()
+
+        params = self.params
+        name = 'model' if params.encoder_only else 'encoder'
+        model = getattr(self, name)
+        model.train()
+
+        lang1_id = params.lang2id[lang1]
+        lang2_id = params.lang2id[lang2]
+
+        if lang1 == lang2:
+            (x1, len1) = self.get_batch('ae', lang1)
+            (x2, len2) = (x1, len1)
+            (x1, len1) = self.add_noise(x1, len1)
+        else:
+            (x1, len1), (x2, len2) = self.get_batch('mt', lang1, lang2)
+        langs1 = x1.clone().fill_(lang1_id)
+        langs2 = x2.clone().fill_(lang2_id)
+
+        # target words to predict
+        alen = torch.arange(len2.max(), dtype=torch.long, device=len2.device)
+        pred_mask = (x2 != params.eos_index)&(x2 != params.pad_index)  # do not predict anything given the last target word
+        y = x2.masked_select(pred_mask)
+
+        # cuda
+        x1, len1, langs1, x2, len2, langs2, y = to_cuda(x1, len1, langs1, x2, len2, langs2, y)
+
+        # encode source sentence
+        enc1 = self.model('fwd', x=x1, lengths=len1, langs=langs1, causal=False)
+        x2 = x2.transpose(0, 1)
+        pred_mask = pred_mask.transpose(0, 1)
+
+        loss = self.model.pred_layer.ctc(enc1, y, len1, len2)
+
+        self.stats[('CTC-%s' % lang1) if lang1 == lang2 else ('CTC-%s-%s' % (lang1, lang2))].append(loss.item())
+        loss = lambda_coeff * loss
+
+        # optimize
+        self.optimize(loss)
+
+        # number of processed sentences / words
+        self.n_sentences += params.batch_size
+        self.stats['processed_s'] += len2.size(0)
+        self.stats['processed_w'] += (len2 - 1).sum().item()
 
     def pc_step(self, lang1, lang2, lambda_coeff):
         """
